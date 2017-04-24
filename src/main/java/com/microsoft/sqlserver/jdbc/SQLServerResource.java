@@ -189,8 +189,8 @@ public final class SQLServerResource extends ListResourceBundle {
 				{"R_queryTimeoutPropertyDescription", "The number of seconds to wait before the database reports a query time-out."},
 				{"R_socketTimeoutPropertyDescription", "The number of milliseconds to wait before the java.net.SocketTimeoutException is raised."},
 				{"R_serverPreparedStatementDiscardThresholdPropertyDescription", "The threshold for when to close discarded prepare statements on the server (calling a batch of sp_unprepares). A value of 1 or less will cause sp_unprepare to be called immediately on PreparedStatment close."},
-				{"R_enablePrepareOnFirstPreparedStatementCallPropertyDescription", "This setting specifies whether a prepared statement is prepared (sp_prepexec) on first use (property=true) or on second after first calling sp_executesql (property=false)."},
-				{"R_gsscredentialPropertyDescription", "Impersonated GSS Credential to access SQL Server."}, 
+		        {"R_enablePrepareOnFirstPreparedStatementCallPropertyDescription", "This setting specifies whether a prepared statement is prepared (sp_prepexec) on first use (property=true) or on second after first calling sp_executesql (property=false)."},
+		        {"R_gsscredentialPropertyDescription", "Impersonated GSS Credential to access SQL Server."},
 				{"R_noParserSupport", "An error occurred while instantiating the required parser. Error: \"{0}\""},
 				{"R_writeOnlyXML", "Cannot read from this SQLXML instance. This instance is for writing data only."},
 				{"R_dataHasBeenReadXML", "Cannot read from this SQLXML instance. The data has already been read."},
@@ -380,7 +380,8 @@ public final class SQLServerResource extends ListResourceBundle {
 				{"R_invalidFipsEncryptConfig", "Could not enable FIPS due to either encrypt is not true or using trusted certificate settings."},
 				{"R_invalidFipsProviderConfig", "Could not enable FIPS due to invalid FIPSProvider or TrustStoreType."},
 				{"R_serverPreparedStatementDiscardThreshold", "The serverPreparedStatementDiscardThreshold {0} is not valid."},
-				{"R_kerberosLoginFailedForUsername", "Cannot login with Kerberos principal {0}, check your credentials. {1}"},
-				{"R_kerberosLoginFailed", "Kerberos Login failed: {0} due to {1} ({2})"},
+		        {"R_kerberosLoginFailedForUsername", "Cannot login with Kerberos principal {0}, check your credentials. {1}"},
+		        {"R_kerberosLoginFailed", "Kerberos Login failed: {0} due to {1} ({2})"},
+				{"R_MultipleActiveResultSetsPropertyDescription", "The connection property which dictates if MARS is enabled on disabled"},
     };
 }

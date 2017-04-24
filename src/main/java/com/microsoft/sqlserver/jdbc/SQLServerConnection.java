@@ -55,6 +55,7 @@ import javax.xml.bind.DatatypeConverter;
 
 import org.ietf.jgss.GSSCredential;
 import org.ietf.jgss.GSSException;
+import com.microsoft.sqlserver.jdbc.TDSChannel.SMPSession;
 
 /**
  * SQLServerConnection implements a JDBC connection to SQL Server. SQLServerConnections support JDBC connection pooling and may be either physical
@@ -85,7 +86,7 @@ public class SQLServerConnection implements ISQLServerConnection {
 
     // Threasholds related to when prepared statement handles are cleaned-up. 1 == immediately.
     /**
-     * The initial default on application start-up for the prepared statement clean-up action threshold (i.e. when sp_unprepare is called). 
+     * The initial default on application start-up for the prepared statement clean-up action threshold (i.e. when sp_unprepare is called).
      */    
     static final private int INITIAL_DEFAULT_SERVER_PREPARED_STATEMENT_DISCARD_THRESHOLD = 10; // Used to set the initial default, can be changed later.
     static private int defaultServerPreparedStatementDiscardThreshold = -1; // Current default for new connections
@@ -93,7 +94,7 @@ public class SQLServerConnection implements ISQLServerConnection {
 
     /**
      * The initial default on application start-up for if prepared statements should execute sp_executesql before following the prepare, unprepare pattern. 
-     */    
+     */
     static final private boolean INITIAL_DEFAULT_ENABLE_PREPARE_ON_FIRST_PREPARED_STATEMENT_CALL = false; // Used to set the initial default, can be changed later. false == use sp_executesql -> sp_prepexec -> sp_execute -> batched -> sp_unprepare pattern, true == skip sp_executesql part of pattern.
     static private Boolean defaultEnablePrepareOnFirstPreparedStatementCall = null; // Current default for new connections
     private Boolean enablePrepareOnFirstPreparedStatementCall = null; // Current limit for this particular connection.
@@ -167,8 +168,6 @@ public class SQLServerConnection implements ISQLServerConnection {
             return "STSURL: " + stsurl + ", SPN: " + spn;
         }
     }
-
-    
 
     class ActiveDirectoryAuthentication {
         static final String JDBC_FEDAUTH_CLIENT_ID = "7f98cb04-cd1e-40df-9140-3bf7e2cea4db";
@@ -274,6 +273,12 @@ public class SQLServerConnection implements ISQLServerConnection {
 
     final int getQueryTimeoutSeconds() {
         return queryTimeoutSeconds;
+    }
+
+    private boolean multipleActiveResultSets;
+
+    final boolean getMultipleActiveResultSets() {
+        return multipleActiveResultSets;
     }
 
     private int socketTimeoutMilliseconds;
@@ -2016,9 +2021,10 @@ public class SQLServerConnection implements ISQLServerConnection {
 
         byte[] preloginOptionsBeforeFedAuth = {
                 // OPTION_TOKEN (BYTE), OFFSET (USHORT), LENGTH (USHORT)
-                TDS.B_PRELOGIN_OPTION_VERSION, 0, (byte) (16 + fedAuthOffset), 0, 6, // UL_VERSION + US_SUBBUILD
-                TDS.B_PRELOGIN_OPTION_ENCRYPTION, 0, (byte) (22 + fedAuthOffset), 0, 1, // B_FENCRYPTION
-                TDS.B_PRELOGIN_OPTION_TRACEID, 0, (byte) (23 + fedAuthOffset), 0, 36, // ClientConnectionId + ActivityId
+                TDS.B_PRELOGIN_OPTION_VERSION, 0, (byte) (21 + fedAuthOffset), 0, 6, // UL_VERSION + US_SUBBUILD
+                TDS.B_PRELOGIN_OPTION_ENCRYPTION, 0, (byte) (27 + fedAuthOffset), 0, 1, // B_FENCRYPTION
+                TDS.B_PRELOGIN_OPTION_MARS, 0, (byte) (28 + fedAuthOffset), 0, 1, // B_MARS
+                TDS.B_PRELOGIN_OPTION_TRACEID, 0, (byte) (29 + fedAuthOffset), 0, 36, // ClientConnectionId + ActivityId
         };
         System.arraycopy(preloginOptionsBeforeFedAuth, 0, preloginRequest, preloginRequestOffset, preloginOptionsBeforeFedAuth.length);
         preloginRequestOffset = preloginRequestOffset + preloginOptionsBeforeFedAuth.length;
@@ -2032,6 +2038,19 @@ public class SQLServerConnection implements ISQLServerConnection {
         preloginRequest[preloginRequestOffset] = TDS.B_PRELOGIN_OPTION_TERMINATOR;
         preloginRequestOffset++;
 
+        try {
+            multipleActiveResultSets = activeConnectionProperties.getProperty("MultipleActiveResultSets").contains("true");
+        }
+        catch (Exception e) {
+            multipleActiveResultSets = false;
+        }
+
+        byte marsByte;
+        if (multipleActiveResultSets)
+            marsByte = 1;
+        else
+            marsByte = 0;
+
         // PL_OPTION_DATA
         byte[] preloginOptionData = {
                 // - Server version -
@@ -2040,6 +2059,9 @@ public class SQLServerConnection implements ISQLServerConnection {
 
                 // - Encryption -
                 requestedEncryptionLevel,
+
+                // - MARS -
+                marsByte,
 
                 // TRACEID Data Session (ClientConnectionId + ActivityId) - Initialize to 0
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
@@ -2300,6 +2322,20 @@ public class SQLServerConnection implements ISQLServerConnection {
                     }
                     break;
 
+                case TDS.B_PRELOGIN_OPTION_MARS:
+                    System.out.println("reading mars response");
+                    if (1 != optionLength) {
+                        connectionlogger.warning(toString() + " MARS option length:" + optionLength + " is incorrect.  Correct value is 1.");
+                        throwInvalidTDS();
+                    }
+
+                    if (0 != preloginResponse[optionOffset] && 1 != preloginResponse[optionOffset]) {
+                        connectionlogger.warning(toString() + " MARS option set to:" + preloginResponse[optionOffset]
+                                + " is incorrect.  Correct value is 1 for Enabled or 0 for Disabled.");
+                        throwInvalidTDS();
+                    }
+                    break;
+
                 default:
                     if (connectionlogger.isLoggable(Level.FINER))
                         connectionlogger.finer(toString() + " Ignoring prelogin response option:" + optionToken);
@@ -2363,20 +2399,26 @@ public class SQLServerConnection implements ISQLServerConnection {
 
     private final Object schedulerLock = new Object();
 
+    boolean executeCommand(TDSCommand newCommand) throws SQLServerException {
+        return executeCommand(newCommand, null);
+
+    }
+
     /**
      * Executes a command through the scheduler.
      *
      * @param newCommand
      *            the command to execute
      */
-    boolean executeCommand(TDSCommand newCommand) throws SQLServerException {
+    boolean executeCommand(TDSCommand newCommand,
+            SQLServerStatement sqlServerStatement) throws SQLServerException {
         synchronized (schedulerLock) {
             // Detach (buffer) the response from any previously executing
             // command so that we can execute the new command.
             //
             // Note that detaching the response does not process it. Detaching just
             // buffers the response off of the wire to clear the TDS channel.
-            if (null != currentCommand) {
+            if ((null != currentCommand) && (!getMultipleActiveResultSets())) {
                 currentCommand.detach();
                 currentCommand = null;
             }
@@ -2387,6 +2429,18 @@ public class SQLServerConnection implements ISQLServerConnection {
             // serialize command execution.
             boolean commandComplete = false;
             try {
+                System.out.println(newCommand.getClass().getSimpleName());
+                if ((newCommand.getClass().getSimpleName().toString().equalsIgnoreCase("StmtExecCmd")
+                        || (newCommand.getClass().getSimpleName().toString().equalsIgnoreCase("PrepStmtExecCmd"))) && getMultipleActiveResultSets()) {
+                    System.out.println("Sending syn packet");
+                    SMPSession session = new SMPSession();
+                    session.prepareControlPacket(FLAGTYPE.SYN);
+                    tdsChannel.write(session.SMPpacket, 0, (int) session.length);
+
+                    tdsChannel.flush();
+                    sqlServerStatement.SID = session.sid;
+                }
+
                 commandComplete = newCommand.execute(tdsChannel.getWriter(), tdsChannel.getReader(newCommand));
             }
             finally {
@@ -3095,6 +3149,16 @@ public class SQLServerConnection implements ISQLServerConnection {
                             connectionlogger.finer(toString() + " Release of the credentials failed GSSException: " + e);
                     }
                 }
+            }
+
+            if (getMultipleActiveResultSets()) {
+
+                System.out.println("Sending syn packet");
+                SMPSession session = new SMPSession();
+                session.prepareControlPacket(FLAGTYPE.SYN);
+                tdsChannel.write(session.SMPpacket, 0, (int) session.length);
+
+                tdsChannel.flush();
             }
         }
     }
@@ -5267,7 +5331,7 @@ public class SQLServerConnection implements ISQLServerConnection {
         if(null == defaultEnablePrepareOnFirstPreparedStatementCall)
             return getInitialDefaultEnablePrepareOnFirstPreparedStatementCall();
         else
-            return defaultEnablePrepareOnFirstPreparedStatementCall;        
+            return defaultEnablePrepareOnFirstPreparedStatementCall;
     }
 
     /**
@@ -5295,14 +5359,14 @@ public class SQLServerConnection implements ISQLServerConnection {
         if(null == this.enablePrepareOnFirstPreparedStatementCall)
             return getDefaultEnablePrepareOnFirstPreparedStatementCall();
         else
-            return this.enablePrepareOnFirstPreparedStatementCall;        
+            return this.enablePrepareOnFirstPreparedStatementCall;
     }
 
     /**
      * Specifies the behavior for a specific connection instance. If value is false the first execution will call sp_executesql and not prepare 
      * a statement, once the second execution happens it will call sp_prepexec and actually setup a prepared statement handle. Following
      * executions will call sp_execute. This relieves the need for sp_unprepare on prepared statement close if the statement is only
-     * executed once.  
+     * executed once.
      * 
      * @param value
      *      Changes the setting per the description.
@@ -5333,7 +5397,7 @@ public class SQLServerConnection implements ISQLServerConnection {
         if(0 > defaultServerPreparedStatementDiscardThreshold)
             return getInitialDefaultServerPreparedStatementDiscardThreshold();
         else
-            return defaultServerPreparedStatementDiscardThreshold;        
+            return defaultServerPreparedStatementDiscardThreshold;
     }
 
     /**
@@ -5363,7 +5427,7 @@ public class SQLServerConnection implements ISQLServerConnection {
         if(0 > this.serverPreparedStatementDiscardThreshold)
             return getDefaultServerPreparedStatementDiscardThreshold();
         else
-            return this.serverPreparedStatementDiscardThreshold;        
+            return this.serverPreparedStatementDiscardThreshold;
     }
 
     /**
@@ -5430,7 +5494,7 @@ public class SQLServerConnection implements ISQLServerConnection {
                     if (this.getConnectionLogger().isLoggable(java.util.logging.Level.FINER))
                         this.getConnectionLogger().log(Level.FINER, this + ": Error batch-closing at least one prepared handle", e);
                 }
-  
+                
                 // Decrement threshold counter
                 this.discardedPreparedStatementHandleQueueCount.addAndGet(-handlesRemoved);
             }

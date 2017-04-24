@@ -450,7 +450,7 @@ public class SQLServerPreparedStatement extends SQLServerStatement implements IS
                 // maxRows is set to 0 when retreving encryption metadata,
                 // need to set it back
                 setMaxRowsAndMaxFieldSize();
-            }
+            } 
 
             // fix an issue when inserting unicode into non-encrypted nchar column using setString() and AE is on on Connection
             hasNewTypeDefinitions = buildPreparedStrings(inOutParam, true);
@@ -462,7 +462,7 @@ public class SQLServerPreparedStatement extends SQLServerStatement implements IS
 
         doPrepExec(tdsWriter, inOutParam, hasNewTypeDefinitions);
 
-        ensureExecuteResultsReader(command.startResponse(getIsResponseBufferingAdaptive()));
+        ensureExecuteResultsReader(command.startResponse(getIsResponseBufferingAdaptive(), connection.getMultipleActiveResultSets(), this.SID));
         startResults();
         getNextResult();
 
@@ -815,7 +815,7 @@ public class SQLServerPreparedStatement extends SQLServerStatement implements IS
     private boolean doPrepExec(TDSWriter tdsWriter,
             Parameter[] params,
             boolean hasNewTypeDefinitions) throws SQLServerException {
-       
+
         boolean needsPrepare = hasNewTypeDefinitions || 0 == prepStmtHandle;
 
         // Cursors never go the non-prepared statement route.
@@ -2458,7 +2458,8 @@ public class SQLServerPreparedStatement extends SQLServerStatement implements IS
             // that repreparation is necessary.
             ++numBatchesPrepared;
             if (doPrepExec(tdsWriter, batchParam, hasNewTypeDefinitions) || numBatchesPrepared == numBatches) {
-                ensureExecuteResultsReader(batchCommand.startResponse(getIsResponseBufferingAdaptive()));
+                ensureExecuteResultsReader(
+                        batchCommand.startResponse(getIsResponseBufferingAdaptive(), connection.getMultipleActiveResultSets(), this.SID));
 
                 while (numBatchesExecuted < numBatchesPrepared) {
                     // NOTE:
