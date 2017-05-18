@@ -262,7 +262,9 @@ final class KerbAuthentication extends SSPIAuthentication {
                 dnsName = canonicalHostName;
             }
             catch (UnknownHostException cannotCanonicalize) {
-                // ignored, but we are in a bad shape
+                if (authLogger.isLoggable(Level.FINE)) {
+                    authLogger.finer("Enrich Spn With Realm: " + cannotCanonicalize.getMessage());
+                }
             }
         }
         if (realm == null) {
@@ -303,6 +305,9 @@ final class KerbAuthentication extends SSPIAuthentication {
                         return ret != null;
                     }
                     catch (Exception err) {
+                        if (authLogger.isLoggable(Level.FINE)) {
+                            authLogger.fine("Kerberos Realm Validator: " + err.getMessage());
+                        }
                         return false;
                     }
                 }
@@ -330,6 +335,9 @@ final class KerbAuthentication extends SSPIAuthentication {
                     return DNSKerberosLocator.isRealmValid(realm);
                 }
                 catch (NamingException err) {
+                    if (authLogger.isLoggable(Level.FINE)) {
+                        authLogger.fine("Kerberos Realm Validator: " + err.getMessage());
+                    }
                     return false;
                 }
             }
