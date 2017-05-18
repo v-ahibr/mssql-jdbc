@@ -498,7 +498,7 @@ public class SQLServerBulkCopy implements java.lang.AutoCloseable {
                 connection.close();
             }
             catch (SQLException e) {
-                // Ignore this exception
+                loggerExternal.finer("Ignoring exception: " + e.getMessage());
             }
         }
 
