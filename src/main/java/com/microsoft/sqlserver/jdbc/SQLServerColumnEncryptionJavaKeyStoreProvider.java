@@ -154,8 +154,8 @@ public class SQLServerColumnEncryptionJavaKeyStoreProvider extends SQLServerColu
                 if (null != fis)
                     fis.close();
             }
-            // Ignore the exception as we are cleaning up.
             catch (IOException e) {
+                javaKeyStoreLogger.finer("Ignore errors since only cleaning up: " + e.getMessage());
             }
         }
 

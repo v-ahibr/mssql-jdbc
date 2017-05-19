@@ -185,7 +185,7 @@ public final class SQLServerColumnEncryptionCertificateStoreProvider extends SQL
                 keyStore.load(fis, password);
             }
             catch (IOException | CertificateException | NoSuchAlgorithmException e) {
-                // Cannot parse the current file, continue to the next.
+                windowsCertificateStoreLogger.fine("Cannot parse the current file, continue to the next.");
                 continue;
             }
 
