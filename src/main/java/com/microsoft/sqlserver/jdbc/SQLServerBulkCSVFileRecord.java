@@ -403,18 +403,21 @@ public class SQLServerBulkCSVFileRecord implements ISQLServerBulkRecord, java.la
                 fileReader.close();
             }
             catch (Exception e) {
+                loggerExternal.finer("Ignore errors since only cleaning up: " + e.getMessage());
             }
         if (sr != null)
             try {
                 sr.close();
             }
             catch (Exception e) {
+                loggerExternal.finer("Ignore errors since only cleaning up: " + e.getMessage());
             }
         if (fis != null)
             try {
                 fis.close();
             }
             catch (Exception e) {
+                loggerExternal.finer("Ignore errors since only cleaning up: " + e.getMessage());
             }
 
         loggerExternal.exiting(loggerClassName, "close");
